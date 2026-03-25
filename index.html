@@ -23,6 +23,19 @@
   <div id="root"></div>
 
   <script type="text/babel">
+        // 簡易パスワード設定 //
+    const PASSWORD = "0523"; 
+
+    if (sessionStorage.getItem("is_auth") !== "true") {
+      const input = prompt("パスワードを入力してください✨");
+      if (input === PASSWORD) {
+        sessionStorage.setItem("is_auth", "true");
+      } else {
+        alert("パスワードが違います");
+        window.location.reload();
+      }
+    }
+
     const { useState, useEffect } = React;
 
     const STORAGE_KEY = "oshi-schedule-v3";
