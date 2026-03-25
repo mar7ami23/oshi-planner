@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Oshi Planner">
+  <title>✨ Oshi Planner</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body { background: linear-gradient(135deg,#fff0f8,#f5f0ff 50%,#fff8f0); font-family: 'Hiragino Sans','Noto Sans JP',sans-serif; min-height: 100vh; }
+    input, textarea, button { font-family: inherit; }
+    ::-webkit-scrollbar { display: none; }
+    button:active { transform: scale(0.96); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const STORAGE_KEY = "oshi-schedule-v3";
+
+    const CATEGORIES = {
+      broadcast: { label: "📺 放送・配信",    color: "#ff6b9d", bg: "#fff0f6" },
+      event:     { label: "🎪 イベント・発売", color: "#a855f7", bg: "#faf0ff" },
+      birthday:  { label: "🎂 誕生日・記念日", color: "#f59e0b", bg: "#fffbeb" },
+      live:      { label: "🎤 ライブ",         color: "#ef4444", bg: "#fff5f5" },
+      stage:     { label: "🎭 舞台",           color: "#0ea5e9", bg: "#f0f9ff" },
+    };
+
+    const STATUSES = {
+      plan:      { label: "📌 予定", color: "#a855f7", bg: "#faf0ff" },
+      confirmed: { label: "✅ 確定", color: "#10b981", bg: "#f0fdf4" },
+    };
+
+    const MONTHS   = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
+    const WEEKDAYS = ["日","月","火","水","木","金","土"];
+
+    function todayStr() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    }
+    function formatDisplay(dateStr, timeStr) {
+      if (!dateStr) return "";
+      const d = new Date(dateStr + "T00:00:00");
+      return `${d.getMonth()+1}/${d.getDate()}${timeStr ? " "+timeStr : ""}`;
+    }
+    function getDaysInMonth(y, m) { return new Date(y, m+1, 0).getDate(); }
+    function getFirstDow(y, m)    { return new Date(y, m, 1).getDay(); }
+    function emptyForm() {
+      return { title:"", oshi:"", category:"live", status:"plan",
+               startDate:"", startTime:"", endDate:"", endTime:"",
+               location:"", note:"" };
+    }
+
+    const FilterBtn = ({ active, onClick, children }) => (
+      <button onClick={onClick} style={{
+        whiteSpace:"nowrap", padding:"7px 14px", borderRadius:20, border:"none",
+        cursor:"pointer", fontSize:12, fontWeight:700,
+        background: active ? "linear-gradient(135deg,#ff6b9d,#c77dff)" : "white",
+        color: active ? "white" : "#888",
+        boxShadow: active ? "0 2px 8px rgba(255,107,157,0.35)" : "0 1px 4px rgba(0,0,0,0.06)",
+      }}>{children}</button>
+    );
+
+    const FilterRow = ({ label, children }) => (
+      <div style={{ marginBottom:10 }}>
+        <div style={{ fontSize:10, fontWeight:700, color:"#ccc", marginBottom:5, letterSpacing:1 }}>{label}</div>
+        <div style={{ display:"flex", gap:7, overflowX:"auto", paddingBottom:3 }}>{children}</div>
+      </div>
+    );
+
+    function OshiSchedule() {
+      const [events, setEvents]       = useState([]);
+      const [tab, setTab]             = useState("calendar");
+      const [viewYear, setViewYear]   = useState(new Date().getFullYear());
+      const [viewMonth, setViewMonth] = useState(new Date().getMonth());
+      const [editId, setEditId]       = useState(null);
+      const [fStatus,   setFStatus]   = useState("all");
+      const [fOshi,     setFOshi]     = useState("all");
+      const [fCategory, setFCategory] = useState("all");
+      const [form, setForm]           = useState(emptyForm());
+
+      useEffect(() => {
+        try { const s = localStorage.getItem(STORAGE_KEY); if (s) setEvents(JSON.parse(s)); } catch {}
+      }, []);
+      useEffect(() => {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(events)); } catch {}
+      }, [events]);
+
+      function openNew(prefillDate) {
+        setForm({ ...emptyForm(), startDate: prefillDate||"", endDate: prefillDate||"" });
+        setEditId(null); setTab("manage");
+      }
+      function openEdit(ev) {
+        setForm({ title:ev.title, oshi:ev.oshi||"", category:ev.category,
+                  status:ev.status||"plan", startDate:ev.startDate, startTime:ev.startTime||"",
+                  endDate:ev.endDate||ev.startDate, endTime:ev.endTime||"",
+                  location:ev.location||"", note:ev.note||"" });
+        setEditId(ev.id); setTab("manage");
+      }
+      function saveEvent() {
+        if (!form.title || !form.startDate) return;
+        const ev = { ...form, endDate: form.endDate||form.startDate, id: editId ?? Date.now() };
+        if (editId !== null) setEvents(es => es.map(e => e.id===editId ? ev : e));
+        else setEvents(es => [...es, ev]);
+        setForm(emptyForm()); setEditId(null);
+      }
+      function deleteEvent(id)       { setEvents(es => es.filter(e => e.id!==id)); }
+      function updateStatus(id, st)  { setEvents(es => es.map(e => e.id===id ? {...e, status:st} : e)); }
+
+      function eventsOnDay(y, m, d) {
+        const ds = `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+        return events.filter(ev => ds >= ev.startDate && ds <= (ev.endDate||ev.startDate));
+      }
+
+      const td          = todayStr();
+      const daysInMonth = getDaysInMonth(viewYear, viewMonth);
+      const firstDow    = getFirstDow(viewYear, viewMonth);
+      const oshiList    = Array.from(new Set(events.map(e=>e.oshi||"").filter(Boolean))).sort();
+      const sorted      = [...events].sort((a,b) => a.startDate.localeCompare(b.startDate));
+      const filtered    = sorted
+        .filter(e => fStatus==="all"   || e.status===fStatus)
+        .filter(e => fOshi==="all"     || (e.oshi||"")===fOshi)
+        .filter(e => fCategory==="all" || e.category===fCategory);
+      const upcoming = filtered.filter(e => (e.endDate||e.startDate) >= td);
+      const past     = filtered.filter(e => (e.endDate||e.startDate) < td);
+
+      const NB  = { background:"#f5f0ff", border:"none", borderRadius:12, width:36, height:36, fontSize:20, cursor:"pointer", color:"#c77dff", fontWeight:700 };
+      const INP = { width:"100%", padding:"12px 14px", borderRadius:12, border:"1.5px solid #e8e8e8", fontSize:14, color:"#333", background:"#fafafa", outline:"none" };
+
+      return (
+        <div style={{ minHeight:"100vh", paddingBottom:80 }}>
+
+          {/* Header */}
+          <div style={{ background:"linear-gradient(135deg,#ff6b9d,#c77dff)", padding:"18px 16px 0",
+            color:"white", position:"sticky", top:0, zIndex:100, boxShadow:"0 4px 20px rgba(255,107,157,0.3)" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+              <div>
+                <div style={{ fontSize:10, opacity:.8, letterSpacing:2 }}>推し活スケジューラー</div>
+                <div style={{ fontSize:22, fontWeight:800 }}>✨ Oshi Planner</div>
+              </div>
+              <button onClick={()=>openNew()}
+                style={{ background:"rgba(255,255,255,0.25)", border:"2px solid rgba(255,255,255,0.6)",
+                  color:"white", borderRadius:50, width:44, height:44, fontSize:22, cursor:"pointer" }}>＋</button>
+            </div>
+            <div style={{ display:"flex", gap:6 }}>
+              {[["calendar","📅 カレンダー"],["list","📋 リスト"],["manage","⚙️ 管理"]].map(([t,l])=>(
+                <button key={t} onClick={()=>setTab(t)}
+                  style={{ flex:1, padding:"9px 0", borderRadius:"14px 14px 0 0", border:"none", cursor:"pointer",
+                    fontWeight:700, fontSize:12,
+                    background:tab===t?"white":"rgba(255,255,255,0.2)",
+                    color:tab===t?"#c77dff":"white" }}>{l}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── CALENDAR ── */}
+          {tab==="calendar" && (
+            <div style={{ padding:16 }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+                background:"white", borderRadius:16, padding:"12px 16px", marginBottom:14,
+                boxShadow:"0 2px 12px rgba(0,0,0,0.06)" }}>
+                <button onClick={()=>{ if(viewMonth===0){setViewYear(y=>y-1);setViewMonth(11);}else setViewMonth(m=>m-1); }} style={NB}>‹</button>
+                <div style={{ fontWeight:800, fontSize:18, color:"#333" }}>{viewYear}年 {MONTHS[viewMonth]}</div>
+                <button onClick={()=>{ if(viewMonth===11){setViewYear(y=>y+1);setViewMonth(0);}else setViewMonth(m=>m+1); }} style={NB}>›</button>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:4 }}>
+                {WEEKDAYS.map((d,i)=>(
+                  <div key={d} style={{ textAlign:"center", fontSize:11, fontWeight:700,
+                    color:i===0?"#ff6b9d":i===6?"#6366f1":"#999", padding:"4px 0" }}>{d}</div>
+                ))}
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3 }}>
+                {Array(firstDow).fill(null).map((_,i)=><div key={"e"+i}/>)}
+                {Array.from({length:daysInMonth},(_,i)=>i+1).map(day=>{
+                  const ds = `${viewYear}-${String(viewMonth+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+                  const dayEvs = eventsOnDay(viewYear, viewMonth, day);
+                  const isT = ds===td;
+                  const dow = (firstDow+day-1)%7;
+                  return (
+                    <div key={day} onClick={()=>openNew(ds)}
+                      style={{ minHeight:56, background:isT?"linear-gradient(135deg,#ff6b9d,#c77dff)":"white",
+                        borderRadius:12, padding:"5px 3px 3px", cursor:"pointer",
+                        boxShadow:isT?"0 4px 12px rgba(255,107,157,0.4)":"0 1px 4px rgba(0,0,0,0.05)",
+                        border:isT?"none":"1px solid #f0f0f0" }}>
+                      <div style={{ textAlign:"center", fontWeight:800, fontSize:13,
+                        color:isT?"white":dow===0?"#ff6b9d":dow===6?"#6366f1":"#333" }}>{day}</div>
+                      {dayEvs.slice(0,2).map(ev=>{
+                        const cat = CATEGORIES[ev.category]||CATEGORIES.live;
+                        const st  = STATUSES[ev.status]||STATUSES.plan;
+                        return (
+                          <div key={ev.id} style={{ background:isT?"rgba(255,255,255,0.28)":cat.bg,
+                            borderRadius:4, padding:"1px 3px", fontSize:9, fontWeight:700,
+                            color:isT?"white":cat.color, marginTop:1,
+                            overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                            {st.label.split(" ")[0]} {ev.title}
+                          </div>
+                        );
+                      })}
+                      {dayEvs.length>2&&<div style={{ fontSize:9, color:isT?"rgba(255,255,255,0.75)":"#ccc", textAlign:"center" }}>+{dayEvs.length-2}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ marginTop:20 }}>
+                <div style={{ fontSize:14, fontWeight:800, color:"#888", marginBottom:10 }}>📌 今月の予定</div>
+                {(() => {
+                  const mon = Array.from({length:daysInMonth},(_,i)=>i+1)
+                    .flatMap(d=>eventsOnDay(viewYear,viewMonth,d))
+                    .filter((e,i,a)=>a.findIndex(x=>x.id===e.id)===i);
+                  return mon.length===0 ? <Empty/> : mon.map(ev=>(
+                    <EventCard key={ev.id} ev={ev} onEdit={()=>openEdit(ev)} onDelete={()=>deleteEvent(ev.id)} onStatus={s=>updateStatus(ev.id,s)}/>
+                  ));
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* ── LIST ── */}
+          {tab==="list" && (
+            <div style={{ padding:16 }}>
+              <FilterRow label="💗 推し">
+                <FilterBtn active={fOshi==="all"} onClick={()=>setFOshi("all")}>🌸 全員</FilterBtn>
+                {oshiList.length===0
+                  ? <span style={{ fontSize:11, color:"#ccc", alignSelf:"center" }}>予定に推し名を入力すると絞り込めます</span>
+                  : oshiList.map(o=><FilterBtn key={o} active={fOshi===o} onClick={()=>setFOshi(o)}>{o}</FilterBtn>)
+                }
+              </FilterRow>
+              <FilterRow label="📂 カテゴリ">
+                <FilterBtn active={fCategory==="all"} onClick={()=>setFCategory("all")}>すべて</FilterBtn>
+                {Object.entries(CATEGORIES).map(([k,v])=>(
+                  <FilterBtn key={k} active={fCategory===k} onClick={()=>setFCategory(k)}>{v.label}</FilterBtn>
+                ))}
+              </FilterRow>
+              <FilterRow label="📌 ステータス">
+                <FilterBtn active={fStatus==="all"} onClick={()=>setFStatus("all")}>すべて</FilterBtn>
+                {Object.entries(STATUSES).map(([k,v])=>(
+                  <FilterBtn key={k} active={fStatus===k} onClick={()=>setFStatus(k)}>{v.label}</FilterBtn>
+                ))}
+              </FilterRow>
+              {upcoming.length===0&&past.length===0 ? <Empty/> : null}
+              {upcoming.length>0&&<>
+                <div style={{ fontSize:13, fontWeight:800, color:"#ff6b9d", marginBottom:10 }}>⬆ これからの予定</div>
+                {upcoming.map(ev=><EventCard key={ev.id} ev={ev} onEdit={()=>openEdit(ev)} onDelete={()=>deleteEvent(ev.id)} onStatus={s=>updateStatus(ev.id,s)}/>)}
+              </>}
+              {past.length>0&&<>
+                <div style={{ fontSize:13, fontWeight:800, color:"#bbb", marginTop:20, marginBottom:10 }}>✓ 過去の予定</div>
+                {past.map(ev=><EventCard key={ev.id} ev={ev} past onEdit={()=>openEdit(ev)} onDelete={()=>deleteEvent(ev.id)} onStatus={s=>updateStatus(ev.id,s)}/>)}
+              </>}
+            </div>
+          )}
+
+          {/* ── MANAGE ── */}
+          {tab==="manage" && (
+            <div style={{ padding:16 }}>
+              <div style={{ background:"white", borderRadius:20, padding:20, boxShadow:"0 2px 16px rgba(0,0,0,0.07)" }}>
+                <div style={{ fontSize:17, fontWeight:800, color:"#333", marginBottom:18 }}>
+                  {editId!==null ? "✏️ 予定を編集" : "＋ 新しい予定を追加"}
+                </div>
+
+                <FF label="推し名">
+                  <input value={form.oshi} onChange={e=>setForm(f=>({...f,oshi:e.target.value}))}
+                    placeholder="例：〇〇ちゃん" style={INP}/>
+                </FF>
+                <FF label="タイトル *">
+                  <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))}
+                    placeholder="例：東京ライブ、CD発売日、生誕祭…" style={INP}/>
+                </FF>
+
+                <FF label="ステータス">
+                  <div style={{ display:"flex", gap:10 }}>
+                    {Object.entries(STATUSES).map(([k,v])=>(
+                      <button key={k} onClick={()=>setForm(f=>({...f,status:k}))}
+                        style={{ flex:1, padding:"12px 8px", borderRadius:14,
+                          border:`2px solid ${form.status===k?v.color:"#e0e0e0"}`,
+                          background:form.status===k?v.bg:"white", cursor:"pointer",
+                          fontSize:14, fontWeight:800, color:form.status===k?v.color:"#ccc" }}>
+                        {v.label}
+                      </button>
+                    ))}
+                  </div>
+                </FF>
+
+                <FF label="カテゴリ">
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+                    {Object.entries(CATEGORIES).map(([k,v])=>(
+                      <button key={k} onClick={()=>setForm(f=>({...f,category:k}))}
+                        style={{ padding:"8px 12px", borderRadius:12,
+                          border:`2px solid ${form.category===k?v.color:"#e0e0e0"}`,
+                          background:form.category===k?v.bg:"white", cursor:"pointer",
+                          fontSize:12, fontWeight:700, color:form.category===k?v.color:"#ccc" }}>
+                        {v.label}
+                      </button>
+                    ))}
+                  </div>
+                </FF>
+
+                <FF label="📅 開始日時">
+                  <div style={{ display:"flex", gap:8 }}>
+                    <input type="date" value={form.startDate}
+                      onChange={e=>setForm(f=>({...f,startDate:e.target.value,endDate:f.endDate||e.target.value}))}
+                      style={{...INP,flex:1}}/>
+                    <input type="time" value={form.startTime}
+                      onChange={e=>setForm(f=>({...f,startTime:e.target.value}))}
+                      style={{...INP,flex:"0 0 108px"}}/>
+                  </div>
+                </FF>
+                <FF label="🏁 終了日時">
+                  <div style={{ display:"flex", gap:8 }}>
+                    <input type="date" value={form.endDate}
+                      onChange={e=>setForm(f=>({...f,endDate:e.target.value}))}
+                      style={{...INP,flex:1}}/>
+                    <input type="time" value={form.endTime}
+                      onChange={e=>setForm(f=>({...f,endTime:e.target.value}))}
+                      style={{...INP,flex:"0 0 108px"}}/>
+                  </div>
+                </FF>
+
+                <FF label="📍 場所">
+                  <input value={form.location} onChange={e=>setForm(f=>({...f,location:e.target.value}))}
+                    placeholder="例：東京ドーム、Zepp Shinjuku…" style={INP}/>
+                </FF>
+
+                <FF label="メモ">
+                  <textarea value={form.note} onChange={e=>setForm(f=>({...f,note:e.target.value}))}
+                    placeholder="チケット番号・URL・整理番号など…"
+                    style={{...INP,height:72,resize:"none"}}/>
+                </FF>
+
+                <button onClick={saveEvent}
+                  style={{ width:"100%", background:"linear-gradient(135deg,#ff6b9d,#c77dff)",
+                    color:"white", border:"none", borderRadius:16, padding:16, fontSize:16,
+                    fontWeight:800, cursor:"pointer", boxShadow:"0 4px 16px rgba(199,125,255,0.4)", marginTop:4 }}>
+                  {editId!==null?"💾 更新する":"✨ 追加する"}
+                </button>
+                {editId!==null&&(
+                  <button onClick={()=>{setEditId(null);setForm(emptyForm());}}
+                    style={{ width:"100%", background:"#f5f5f5", color:"#bbb", border:"none",
+                      borderRadius:16, padding:14, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:10 }}>
+                    キャンセル
+                  </button>
+                )}
+              </div>
+
+              <div style={{ marginTop:20 }}>
+                <div style={{ fontSize:14, fontWeight:800, color:"#888", marginBottom:10 }}>最近の予定</div>
+                {sorted.length===0 ? <Empty/> : sorted.slice(0,8).map(ev=>(
+                  <EventCard key={ev.id} ev={ev} onEdit={()=>openEdit(ev)} onDelete={()=>deleteEvent(ev.id)} onStatus={s=>updateStatus(ev.id,s)}/>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {tab!=="manage"&&(
+            <button onClick={()=>openNew()}
+              style={{ position:"fixed", bottom:24, right:20, width:56, height:56, borderRadius:28,
+                background:"linear-gradient(135deg,#ff6b9d,#c77dff)", color:"white", border:"none",
+                fontSize:26, cursor:"pointer", boxShadow:"0 6px 20px rgba(255,107,157,0.5)", zIndex:50 }}>＋</button>
+          )}
+        </div>
+      );
+    }
+
+    function EventCard({ ev, past, onEdit, onDelete, onStatus }) {
+      const [pick, setPick] = useState(false);
+      const cat = CATEGORIES[ev.category]||CATEGORIES.live;
+      const st  = STATUSES[ev.status]||STATUSES.plan;
+      const isSame = ev.startDate===(ev.endDate||ev.startDate);
+      const dateLabel = isSame
+        ? formatDisplay(ev.startDate, ev.startTime)
+        : `${formatDisplay(ev.startDate,ev.startTime)} 〜 ${formatDisplay(ev.endDate||ev.startDate,ev.endTime)}`;
+      return (
+        <div style={{ background:past?"#fafafa":"white", borderRadius:16, padding:14, marginBottom:10,
+          boxShadow:past?"none":"0 2px 12px rgba(0,0,0,0.06)",
+          border:past?"1px solid #f0f0f0":"none", opacity:past?0.6:1 }}>
+          <div style={{ display:"flex", gap:12, alignItems:"flex-start" }}>
+            <div style={{ background:cat.bg, borderRadius:12, width:44, height:44,
+              display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:20 }}>
+              {cat.label.split(" ")[0]}
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontWeight:800, fontSize:15, color:"#222", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{ev.title}</div>
+              {ev.oshi&&<div style={{ fontSize:11, color:cat.color, fontWeight:700, marginTop:1 }}>💗 {ev.oshi}</div>}
+              <div style={{ fontSize:12, color:"#999", marginTop:2 }}>{dateLabel}</div>
+              {ev.location&&<div style={{ fontSize:11, color:"#aaa", marginTop:2 }}>📍 {ev.location}</div>}
+              {ev.note&&<div style={{ fontSize:11, color:"#bbb", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📝 {ev.note}</div>}
+              <div style={{ marginTop:7, position:"relative" }}>
+                <button onClick={()=>setPick(v=>!v)}
+                  style={{ padding:"4px 12px", borderRadius:20, border:`1.5px solid ${st.color}`,
+                    background:st.bg, color:st.color, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                  {st.label} ▾
+                </button>
+                {pick&&(
+                  <div style={{ position:"absolute", top:32, left:0, background:"white", borderRadius:14,
+                    boxShadow:"0 8px 30px rgba(0,0,0,0.15)", padding:10, zIndex:200, display:"flex", gap:8 }}>
+                    {Object.entries(STATUSES).map(([k,v])=>(
+                      <button key={k} onClick={()=>{ onStatus(k); setPick(false); }}
+                        style={{ padding:"8px 16px", borderRadius:16, border:`1.5px solid ${v.color}`,
+                          background:v.bg, color:v.color, fontSize:13, fontWeight:800, cursor:"pointer" }}>
+                        {v.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+              <button onClick={onEdit}   style={{ background:"#f5f0ff", border:"none", borderRadius:8, width:32, height:32, cursor:"pointer", fontSize:14 }}>✏️</button>
+              <button onClick={onDelete} style={{ background:"#fff0f0", border:"none", borderRadius:8, width:32, height:32, cursor:"pointer", fontSize:14 }}>🗑️</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function FF({ label, children }) {
+      return (
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:"#999", marginBottom:6 }}>{label}</div>
+          {children}
+        </div>
+      );
+    }
+    function Empty() {
+      return (
+        <div style={{ textAlign:"center", padding:"40px 0", color:"#ccc" }}>
+          <div style={{ fontSize:40, marginBottom:8 }}>🌙</div>
+          <div style={{ fontSize:13 }}>まだ予定がありません</div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<OshiSchedule />);
+  </script>
+
+</body>
+</html>
